@@ -4,67 +4,93 @@ Support for the Tivo receivers.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/media_player.tivo/
 """
-import voluptuous as vol
-import requests
-import re
 import asyncio
-import zeroconf
+import json
 
-from datetime import timedelta
-#from pytz import timezone
+# from pytz import timezone
 import logging
+import os.path
+import re
 import socket
 import sys
 import time
-from calendar import timegm
-import json
 import urllib
+from calendar import timegm
+from datetime import timedelta
 from urllib.parse import urlencode
-import os.path
 
-from homeassistant import util
-from homeassistant.components.media_player import (
-        PLATFORM_SCHEMA, MediaPlayerDevice)
-from homeassistant.components.media_player.const import (
-    MEDIA_TYPE_TVSHOW, MEDIA_TYPE_VIDEO, SUPPORT_PAUSE, SUPPORT_PLAY_MEDIA,
-    SUPPORT_TURN_OFF, SUPPORT_TURN_ON, SUPPORT_STOP,
-    SUPPORT_NEXT_TRACK, SUPPORT_PREVIOUS_TRACK, SUPPORT_PLAY)
-from homeassistant.const import (
-    CONF_DEVICE, CONF_HOST, CONF_NAME, STATE_OFF, STATE_STANDBY, STATE_PLAYING, CONF_PORT, CONF_USERNAME, CONF_PASSWORD)
 import homeassistant.helpers.config_validation as cv
-#from homeassistant.helpers.event import (track_utc_time_change, track_time_interval)
+import requests
+import voluptuous as vol
+import zeroconf
+from homeassistant import util
+from homeassistant.components.media_player import PLATFORM_SCHEMA, MediaPlayerDevice
+from homeassistant.components.media_player.const import (
+    MEDIA_TYPE_TVSHOW,
+    MEDIA_TYPE_VIDEO,
+    SUPPORT_NEXT_TRACK,
+    SUPPORT_PAUSE,
+    SUPPORT_PLAY,
+    SUPPORT_PLAY_MEDIA,
+    SUPPORT_PREVIOUS_TRACK,
+    SUPPORT_STOP,
+    SUPPORT_TURN_OFF,
+    SUPPORT_TURN_ON,
+)
+from homeassistant.const import (
+    CONF_DEVICE,
+    CONF_HOST,
+    CONF_NAME,
+    CONF_PASSWORD,
+    CONF_PORT,
+    CONF_USERNAME,
+    STATE_OFF,
+    STATE_PLAYING,
+    STATE_STANDBY,
+)
+
+# from homeassistant.helpers.event import (track_utc_time_change, track_time_interval)
 from homeassistant.helpers.event import track_time_interval
 from homeassistant.util.json import load_json, save_json
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = 'Tivo Receiver'
+DEFAULT_NAME = "Tivo Receiver"
 DEFAULT_PORT = 31339
-DEFAULT_DEVICE = '0'
+DEFAULT_DEVICE = "0"
 
-CONF_ZAPUSER = 'zapuser'
-CONF_ZAPPASS = 'zappass'
-CONF_DEBUG   = 'debug'
+CONF_ZAPUSER = "zapuser"
+CONF_ZAPPASS = "zappass"
+CONF_DEBUG = "debug"
 
 SCAN_INTERVAL = timedelta(seconds=10)
 ZAP_SCAN_INTERVAL = timedelta(seconds=300)
 
-SUPPORT_TIVO = SUPPORT_PAUSE |\
-    SUPPORT_PLAY_MEDIA | SUPPORT_STOP | SUPPORT_NEXT_TRACK |\
-    SUPPORT_TURN_ON | SUPPORT_TURN_OFF |\
-    SUPPORT_PREVIOUS_TRACK | SUPPORT_PLAY
+SUPPORT_TIVO = (
+    SUPPORT_PAUSE
+    | SUPPORT_PLAY_MEDIA
+    | SUPPORT_STOP
+    | SUPPORT_NEXT_TRACK
+    | SUPPORT_TURN_ON
+    | SUPPORT_TURN_OFF
+    | SUPPORT_PREVIOUS_TRACK
+    | SUPPORT_PLAY
+)
 
 DATA_TIVO = "data_tivo"
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_HOST): cv.string,
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-    vol.Optional(CONF_DEVICE, default=DEFAULT_DEVICE): cv.string,
-    vol.Optional(CONF_ZAPUSER, default=""): cv.string,
-    vol.Optional(CONF_ZAPPASS, default=""): cv.string,
-    vol.Optional(CONF_DEBUG, default=0): cv.string
-})
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Optional(CONF_HOST): cv.string,
+        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
+        vol.Optional(CONF_DEVICE, default=DEFAULT_DEVICE): cv.string,
+        vol.Optional(CONF_ZAPUSER, default=""): cv.string,
+        vol.Optional(CONF_ZAPPASS, default=""): cv.string,
+        vol.Optional(CONF_DEBUG, default=0): cv.string,
+    }
+)
+
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up the Tivo platform."""
@@ -82,14 +108,16 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         zapclient = Zap2ItClient(zapuser, zappass, debug)
 
     if CONF_HOST in config:
-        hosts.append([
-            config.get(CONF_NAME),
-            config.get(CONF_HOST),
-            config.get(CONF_PORT),
-            config.get(CONF_DEVICE),
-            zapclient,
-            debug
-        ])
+        hosts.append(
+            [
+                config.get(CONF_NAME),
+                config.get(CONF_HOST),
+                config.get(CONF_PORT),
+                config.get(CONF_DEVICE),
+                zapclient,
+                debug,
+            ]
+        )
 
     # Discovery not tested and likely not working
     else:
@@ -99,12 +127,16 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             # attempt to discover additional Tivo units
             device = 0
             for name, ip_addr in zc_hosts.items():
-                hosts.append([name + " TiVo", ip_addr, DEFAULT_PORT, device, zapclient, debug])
+                hosts.append(
+                    [name + " TiVo", ip_addr, DEFAULT_PORT, device, zapclient, debug]
+                )
                 device = device + 1
         else:
             # bail out and just go forward with uPnP data
             if DEFAULT_DEVICE not in known_devices:
-                hosts.append([name, host, DEFAULT_PORT, DEFAULT_DEVICE, zapclient, debug])
+                hosts.append(
+                    [name, host, DEFAULT_PORT, DEFAULT_DEVICE, zapclient, debug]
+                )
 
     tivos = []
 
@@ -130,14 +162,15 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     return True
 
+
 #
 # Taken from https://github.com/wmcbrine/tivoremote.git
 #
 def find_tivos_zc():
-    """ Find TiVos on the LAN using Zeroconf. This is simpler and
-        cleaner than the fake HTTP method, but slightly slower, and
-        requires the Zeroconf module. (It's still much faster than
-        waiting for beacons.)
+    """Find TiVos on the LAN using Zeroconf. This is simpler and
+    cleaner than the fake HTTP method, but slightly slower, and
+    requires the Zeroconf module. (It's still much faster than
+    waiting for beacons.)
 
     """
 
@@ -151,7 +184,7 @@ def find_tivos_zc():
         def add_service(self, server, type, name):
             self.names.append(name)
 
-    REMOTE = '_tivo-remote._tcp.local.'
+    REMOTE = "_tivo-remote._tcp.local."
 
     tivo_ports = {}
     tivo_swversions = {}
@@ -172,22 +205,22 @@ def find_tivos_zc():
 
     # For proxied TiVos, remove the original
     for t in tivo_names[:]:
-        if t.startswith('Proxy('):
+        if t.startswith("Proxy("):
             try:
-                t = t.replace('.' + REMOTE, '')[6:-1] + '.' + REMOTE
+                t = t.replace("." + REMOTE, "")[6:-1] + "." + REMOTE
                 tivo_names.remove(t)
             except:
                 pass
 
     # Now get the addresses -- this is the slow part
-    swversion = re.compile('(\d*.\d*)').findall
+    swversion = re.compile("(\d*.\d*)").findall
     for t in tivo_names:
         s = serv.get_service_info(REMOTE, t)
         if s:
-            name = t.replace('.' + REMOTE, '')
+            name = t.replace("." + REMOTE, "")
             address = socket.inet_ntoa(s.address)
             try:
-                version = float(swversion(s.getProperties()['swversion'])[0])
+                version = float(swversion(s.getProperties()["swversion"])[0])
             except:
                 version = 0.0
             tivos[name] = address
@@ -197,13 +230,14 @@ def find_tivos_zc():
 
     # For proxies with numeric names, remove the original
     for t in tivo_names:
-        if t.startswith('Proxy('):
-            address = t.replace('.' + REMOTE, '')[6:-1]
+        if t.startswith("Proxy("):
+            address = t.replace("." + REMOTE, "")[6:-1]
             if address in tivos_rev:
                 tivos.pop(tivos_rev[address])
 
     serv.close()
     return tivos
+
 
 class TivoDevice(MediaPlayerDevice):
     """Representation of a Tivo receiver on the network."""
@@ -244,7 +278,7 @@ class TivoDevice(MediaPlayerDevice):
     def get_status(self):
         if self.debug:
             _LOGGER.info("get_status called...")
-        data = self.send_code('','')
+        data = self.send_code("", "")
         """ e.g. CH_STATUS 0645 LOCAL """
         """ e.g. CH_STATUS 0645 RECORDING """
 
@@ -259,14 +293,16 @@ class TivoDevice(MediaPlayerDevice):
             return
 
         self._current["channel"] = "no channel"
-        self._current["title"]   = "no title"
-        self._current["status"]  = "no status"
-        self._current["mode"]    = "none"
+        self._current["title"] = "no title"
+        self._current["status"] = "no status"
+        self._current["mode"] = "none"
         # returns no image
-        self._current["image"] = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
+        self._current[
+            "image"
+        ] = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
 
         # Sometimes tivo returns 'no_channel Video' from a status request.
-        if words[0] == 'no_channel' or len(words) < 3:
+        if words[0] == "no_channel" or len(words) < 3:
             return
 
         if words[0] == "CH_STATUS":
@@ -281,16 +317,16 @@ class TivoDevice(MediaPlayerDevice):
                 status = words[2]
 
             self._current["channel"] = channel
-            self._current["title"]   = "Ch. {}".format(channel)
-            self._current["status"]  = status
-            self._current["mode"]    = "TV"
+            self._current["title"] = "Ch. {}".format(channel)
+            self._current["status"] = status
+            self._current["mode"] = "TV"
 
         if self.zapclient:
-            zap_ch = channel.replace('-', '.')      # maybe not needed
-            ch  = self.zapclient.get_callsign(zap_ch)
+            zap_ch = channel.replace("-", ".")  # maybe not needed
+            ch = self.zapclient.get_callsign(zap_ch)
             self._current["channel"] = ch
             num = zap_ch.lstrip("0")
-            ti  = self.zapclient.get_title(zap_ch)
+            ti = self.zapclient.get_title(zap_ch)
             if self.debug:
                 _LOGGER.info("Channel:  %s", num)
                 _LOGGER.info("Callsign: %s", ch)
@@ -310,7 +346,7 @@ class TivoDevice(MediaPlayerDevice):
         try:
             self.connect(self._host, self._port)
             if code:
-                if cmdtype == '':
+                if cmdtype == "":
                     tosend = code + "\r"
                 else:
                     tosend = cmdtype + " " + code + "\r"
@@ -329,7 +365,7 @@ class TivoDevice(MediaPlayerDevice):
             except socket.timeout:
                 if self.debug:
                     _LOGGER.warning("Connection timed out...")
-                data = b'no_channel Video'
+                data = b"no_channel Video"
 
             self.disconnect()
             return data.decode()
@@ -338,9 +374,9 @@ class TivoDevice(MediaPlayerDevice):
 
     def channel_scan(self):
         for i in range(1, self._channel_max):
-            res = self.send_code('SETCH', 'IRCODE', str(i))
+            res = self.send_code("SETCH", "IRCODE", str(i))
             words = res.split()
-            if words[0] == 'INVALID':
+            if words[0] == "INVALID":
                 self._ignore.append(str(i))
 
     # MediaPlayerDevice properties and methods
@@ -363,7 +399,7 @@ class TivoDevice(MediaPlayerDevice):
         """Live TV. """
         """ Any client wishing to set a channel must wait for """
         """ LIVETV_READY before issuing a SETCH or FORCECH command. """
-        data = self.send_code('LIVETV', 'TELEPORT')
+        data = self.send_code("LIVETV", "TELEPORT")
         self._current["mode"] = "TV"
         return data
 
@@ -372,7 +408,7 @@ class TivoDevice(MediaPlayerDevice):
         data = ""
         """Guide."""
         """ Also returns status as with NOWPLAYING, e.g. CH_STATUS 0613 LOCAL """
-        data = self.send_code('GUIDE', 'TELEPORT')
+        data = self.send_code("GUIDE", "TELEPORT")
         self._current["mode"] = "GUIDE"
         return data
 
@@ -380,7 +416,7 @@ class TivoDevice(MediaPlayerDevice):
     def show_tivo(self):
         data = ""
         """Tivo menu."""
-        self.send_code('TIVO', 'TELEPORT')
+        self.send_code("TIVO", "TELEPORT")
         self._current["mode"] = "MENU"
         return data
 
@@ -388,7 +424,7 @@ class TivoDevice(MediaPlayerDevice):
     def show_now(self):
         data = b""
         """Now playing."""
-        data = self.send_code('NOWPLAYING', 'TELEPORT')
+        data = self.send_code("NOWPLAYING", "TELEPORT")
         self._current["mode"] = "NOWPLAYING"
         return data
 
@@ -396,27 +432,27 @@ class TivoDevice(MediaPlayerDevice):
     def show_vod(self):
         data = b""
         """ Activate Video on demand menu """
-        data = self.send_code('VIDEO_ON_DEMAND','KEYBOARD')
+        data = self.send_code("VIDEO_ON_DEMAND", "KEYBOARD")
         self._current["mode"] = "VIDEO"
         return data
 
     def channel_set(self, channel):
         """Channel set."""
         data = self.show_live()
-        #if(data.trim() == "LIVETV_READY"):
-        self.send_code('SETCH', '', channel)
+        # if(data.trim() == "LIVETV_READY"):
+        self.send_code("SETCH", "", channel)
 
     def media_ch_up(self):
         """Channel up."""
         if self._current["mode"] == "TV":
-            data = self.send_code('CHANNELUP')
+            data = self.send_code("CHANNELUP")
             words = data.split()
             self.set_status(words)
 
     def media_ch_dn(self):
         """Channel down."""
         if self._current["mode"] == "TV":
-            data = self.send_code('CHANNELDOWN')
+            data = self.send_code("CHANNELDOWN")
             words = data.split()
             self.set_status(words)
 
@@ -440,22 +476,22 @@ class TivoDevice(MediaPlayerDevice):
         """Return the title of current playing media."""
         if self._is_standby:
             return None
-        return self._current['title']
+        return self._current["title"]
 
     @property
     def media_image_url(self):
         """Return the image url of current playing media."""
         if self._is_standby:
             return None
-        return self._current['image']
+        return self._current["image"]
 
     @property
     def media_series_title(self):
         """Return the title of current episode of TV show."""
         if self._is_standby:
             return None
-        elif 'episodeTitle' in self._current:
-            return self._current['episodeTitle']
+        elif "episodeTitle" in self._current:
+            return self._current["episodeTitle"]
         return ""
 
     @property
@@ -468,10 +504,10 @@ class TivoDevice(MediaPlayerDevice):
         """Boolean if channel up command supported."""
         return bool(self.supported_features & SUPPORT_CHANNEL_STEP)
 
-#    @property
-#    def support_ch_buttons(self):
-#        """Boolean if channel buttons supported."""
-#        return bool(self.supported_features & SUPPORT_CH_BUTTONS)
+    #    @property
+    #    def support_ch_buttons(self):
+    #        """Boolean if channel buttons supported."""
+    #        return bool(self.supported_features & SUPPORT_CH_BUTTONS)
 
     @property
     def supported_features(self):
@@ -484,7 +520,7 @@ class TivoDevice(MediaPlayerDevice):
         if self._is_standby:
             return
 
-        if 'episodeTitle' in self._current:
+        if "episodeTitle" in self._current:
             return MEDIA_TYPE_TVSHOW
         return MEDIA_TYPE_VIDEO
 
@@ -494,20 +530,19 @@ class TivoDevice(MediaPlayerDevice):
         if self._is_standby:
             return None
 
-        return "{} ({})".format(
-            self._current['status'], self._current['channel'])
+        return "{} ({})".format(self._current["status"], self._current["channel"])
 
     def turn_on(self):
         """Turn on the receiver. """
         if self._is_standby:
-            self.send_code('STANDBY','IRCODE')
+            self.send_code("STANDBY", "IRCODE")
             self._is_standby = False
 
     def turn_off(self):
         """Turn off the receiver. """
         if self._is_standby == False:
-            self.send_code('STANDBY','IRCODE')
-            self.send_code('STANDBY','IRCODE')
+            self.send_code("STANDBY", "IRCODE")
+            self.send_code("STANDBY", "IRCODE")
             self._is_standby = True
 
     def media_play(self):
@@ -515,14 +550,14 @@ class TivoDevice(MediaPlayerDevice):
         if self._is_standby:
             return
 
-        self.send_code('PLAY')
+        self.send_code("PLAY")
 
     def media_pause(self):
         """Send pause command."""
         if self._is_standby:
             return None
 
-        self.send_code('PAUSE', 'IRCODE', 0, 0)
+        self.send_code("PAUSE", "IRCODE", 0, 0)
 
     def media_stop(self):
         """Send stop command. """
@@ -532,16 +567,16 @@ class TivoDevice(MediaPlayerDevice):
         if self._current["mode"] == "TV":
             return "INTV"
 
-        data = self.send_code('STOP', 'IRCODE', 0, 0)
+        data = self.send_code("STOP", "IRCODE", 0, 0)
         words = data.split()
         return words[2]
 
     def media_record(self):
         """ Start recording the current program """
         if self._is_standby:
-             return
+            return
 
-        self.send_code('RECORD', 'IRCODE')
+        self.send_code("RECORD", "IRCODE")
 
     def media_previous_track(self):
         """Send rewind command."""
@@ -551,7 +586,7 @@ class TivoDevice(MediaPlayerDevice):
         if self._current["mode"] in ("TV", "none"):
             self.media_ch_dn()
         else:
-            self.send_code('REVERSE', 'IRCODE', 0, 0)
+            self.send_code("REVERSE", "IRCODE", 0, 0)
 
         self.get_status()
 
@@ -563,12 +598,12 @@ class TivoDevice(MediaPlayerDevice):
         if self._current["mode"] in ("TV", "none"):
             self.media_ch_up()
         else:
-            self.send_code('FORWARD', 'IRCODE', 0, 0)
+            self.send_code("FORWARD", "IRCODE", 0, 0)
 
         self.get_status()
 
-class Zap2ItClient:
 
+class Zap2ItClient:
     def __init__(self, zapuser, zappass, debug=False):
         self._zapuser = zapuser
         self._zappass = zappass
@@ -579,7 +614,7 @@ class Zap2ItClient:
         self._images = {}
 
         self.update()
-    
+
     def get_callsign(self, ch):
         return self._channels.get(ch)
 
@@ -594,34 +629,41 @@ class Zap2ItClient:
 
     def login(self):
         # Login and fetch a token
-        host = 'https://tvlistings.zap2it.com/'
-        loginpath = 'api/user/login'
-        favpath = 'api/user/favorites'
+        host = "https://tvlistings.zap2it.com/"
+        loginpath = "api/user/login"
+        favpath = "api/user/favorites"
         login = host + loginpath
 
-        tosend = {'emailid': self._zapuser, 'password': self._zappass, 'usertype': '0', 'facebookuser': 'false'}
-        tosend_json = json.dumps(tosend).encode('utf8')
-        header = {'content-type': 'application/json'}
+        tosend = {
+            "emailid": self._zapuser,
+            "password": self._zappass,
+            "usertype": "0",
+            "facebookuser": "false",
+        }
+        tosend_json = json.dumps(tosend).encode("utf8")
+        header = {"content-type": "application/json"}
 
-        req = urllib.request.Request(url=login, data=tosend_json, headers=header, method='POST')
+        req = urllib.request.Request(
+            url=login, data=tosend_json, headers=header, method="POST"
+        )
 
         try:
             res = urllib.request.urlopen(req, timeout=5)
 
-            rawrtrn = res.read().decode('utf8')
+            rawrtrn = res.read().decode("utf8")
         except Exception:
             return
 
         rtrn = json.loads(rawrtrn)
 
-        self._token = rtrn['token']
+        self._token = rtrn["token"]
         if self.debug:
-             _LOGGER.debug("Zap token: %s", self._token)
-        self._zapprops = rtrn['properties']
+            _LOGGER.debug("Zap token: %s", self._token)
+        self._zapprops = rtrn["properties"]
 
-        self._zipcode = self._zapprops['2002']
-        self._country = self._zapprops['2003']
-        (self._lineupId, self._device) = self._zapprops['2004'].split(':')
+        self._zipcode = self._zapprops["2002"]
+        self._country = self._zapprops["2003"]
+        (self._lineupId, self._device) = self._zapprops["2004"].split(":")
 
     def get_data(self):
         if self.debug:
@@ -630,30 +672,36 @@ class Zap2ItClient:
         now = int(time.time())
         self._channels = {}
         zap_params = self.get_zap_params()
-        host = 'https://tvlistings.zap2it.com/'
+        host = "https://tvlistings.zap2it.com/"
 
         # Only get 1 hour of programming since we only need/want the current program titles
-        #param = '?time=' + str(now) + '&timespan=0&pref=-&' + urlencode(zap_params) + '&TMSID=&FromPage=TV%20Grid&ActivityID=1&OVDID=&isOverride=true'
-        param = '?time=' + str(now) + '&timespan=1&pref=-&' + urlencode(zap_params) + '&TMSID=&FromPage=TV%20Grid&ActivityID=1&OVDID=&isOverride=true'
-        url = host + 'api/grid' + param
+        # param = '?time=' + str(now) + '&timespan=0&pref=-&' + urlencode(zap_params) + '&TMSID=&FromPage=TV%20Grid&ActivityID=1&OVDID=&isOverride=true'
+        param = (
+            "?time="
+            + str(now)
+            + "&timespan=1&pref=-&"
+            + urlencode(zap_params)
+            + "&TMSID=&FromPage=TV%20Grid&ActivityID=1&OVDID=&isOverride=true"
+        )
+        url = host + "api/grid" + param
         if self.debug:
             _LOGGER.debug("Zapget url: %s", url)
 
-        header = {'X-Requested-With': 'XMLHttpRequest'}
+        header = {"X-Requested-With": "XMLHttpRequest"}
 
-        req = urllib.request.Request(url=url,headers=header, method='GET')
+        req = urllib.request.Request(url=url, headers=header, method="GET")
         res = urllib.request.urlopen(req, timeout=5)
 
         try:
-            self._raw = res.read().decode('utf8')
+            self._raw = res.read().decode("utf8")
             self._zapraw = json.loads(self._raw)
         except Exception:
             return
 
-        #self._zapraw = json.loads(res.read().decode('utf8'))
+        # self._zapraw = json.loads(res.read().decode('utf8'))
 
         if self.debug:
-            f = open('/tmp/zapraw','w')
+            f = open("/tmp/zapraw", "w")
             f.write(self._raw)
             f.close()
 
@@ -664,10 +712,10 @@ class Zap2ItClient:
         # Decode basic channel num to channel name from zap raw data
         if self.debug:
             _LOGGER.info("zapget_channels called")
-        for channelData in self._zapraw['channels']:
+        for channelData in self._zapraw["channels"]:
             # Pad channel numbers to 4 chars to match values from Tivo device
-            _ch = channelData['channelNo'].zfill(4)
-            self._channels[_ch] = channelData['callSign']
+            _ch = channelData["channelNo"].zfill(4)
+            self._channels[_ch] = channelData["callSign"]
 
     def get_titles(self):
         # Decode program titles from zap raw data
@@ -675,12 +723,12 @@ class Zap2ItClient:
             _LOGGER.info("zapget_titles called")
         self._titles = {}
         self._images = {}
-        #self._start  = {}
-        #self._end    = {}
+        # self._start  = {}
+        # self._end    = {}
 
-        for channelData in self._zapraw['channels']:
-            _ch = channelData['channelNo'].zfill(4)
-            _ev = channelData['events']
+        for channelData in self._zapraw["channels"]:
+            _ch = channelData["channelNo"].zfill(4)
+            _ev = channelData["events"]
 
             if not _ev:
                 if self.debug:
@@ -688,39 +736,49 @@ class Zap2ItClient:
                 continue
 
             tmp = _ev[0]
-            prog = tmp['program']
+            prog = tmp["program"]
 
-            start_utc  = time.strptime(tmp['startTime'], "%Y-%m-%dT%H:%M:%SZ")
+            start_utc = time.strptime(tmp["startTime"], "%Y-%m-%dT%H:%M:%SZ")
             start_time = timegm(start_utc)
-#            starthm    = time.strftime("%H:%M",  timezone('US/Central').localize(start_utc))
+            #            starthm    = time.strftime("%H:%M",  timezone('US/Central').localize(start_utc))
 
-            end_utc    = time.strptime(tmp['endTime'], "%Y-%m-%dT%H:%M:%SZ")
-            end_time   = timegm(end_utc)
-#            #endhm   = time.strftime("%H:%M", end_utc)
-#            endhm   = time.strftime("%H:%M", timezone('US/Central').localize(end_utc))
-#
-#            pgmtime = ' (' + starthm + ' - ' + endhm + ')'
+            end_utc = time.strptime(tmp["endTime"], "%Y-%m-%dT%H:%M:%SZ")
+            end_time = timegm(end_utc)
+            #            #endhm   = time.strftime("%H:%M", end_utc)
+            #            endhm   = time.strftime("%H:%M", timezone('US/Central').localize(end_utc))
+            #
+            #            pgmtime = ' (' + starthm + ' - ' + endhm + ')'
 
             try:
-                if tmp['thumbnail'] != "":
-                    image = "https://zap2it.tmsimg.com/assets/" + tmp['thumbnail'] + ".jpg"
+                if tmp["thumbnail"] != "":
+                    image = (
+                        "https://zap2it.tmsimg.com/assets/" + tmp["thumbnail"] + ".jpg"
+                    )
                 else:
-                    image = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
+                    image = (
+                        "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
+                    )
             except:
                 image = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
             self._images[_ch] = image
 
             now = int(time.time())
             if start_time < now < end_time:
-                title = prog['title']
+                title = prog["title"]
                 self._titles[_ch] = title
                 try:
-                    if tmp['thumbnail'] != "":
-                        image = "https://zap2it.tmsimg.com/assets/" + tmp['thumbnail'] + ".jpg"
+                    if tmp["thumbnail"] != "":
+                        image = (
+                            "https://zap2it.tmsimg.com/assets/"
+                            + tmp["thumbnail"]
+                            + ".jpg"
+                        )
                     else:
                         image = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
                 except:
-                    image = "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
+                    image = (
+                        "https://tvlistings.zap2it.com/assets/images/noImage165x220.jpg"
+                    )
                 self._images[_ch] = image
                 # + pgmtime
 
@@ -728,28 +786,28 @@ class Zap2ItClient:
         zparams = {}
 
         self._postalcode = self._zipcode
-        country = 'USA'
-        device = 'X'
+        country = "USA"
+        device = "X"
 
-        if re.match('[A-z]', self._zipcode):
-            country = 'CAN'
+        if re.match("[A-z]", self._zipcode):
+            country = "CAN"
 
             print("testing zlineupid: %s\n" % zlineupId)
-            if re.match(':', zlineupId):
-                (lineupId, device) = zlineupId.split(':')
+            if re.match(":", zlineupId):
+                (lineupId, device) = zlineupId.split(":")
             else:
                 lineupId = zlineupId
-                device   = '-'
+                device = "-"
 
-            zparams['postalCode'] = self._postalcode
+            zparams["postalCode"] = self._postalcode
         else:
-            zparams['token'] = self._token
+            zparams["token"] = self._token
 
-        zparams['lineupId']    = self._country + '-' + self._lineupId + '-DEFAULT'
-        zparams['headendId']   = self._lineupId
-        zparams['device']      = device
-        zparams['postalCode']  = self._postalcode
-        zparams['country']     = self._country
-        zparams['aid']         = 'gapzap'
+        zparams["lineupId"] = self._country + "-" + self._lineupId + "-DEFAULT"
+        zparams["headendId"] = self._lineupId
+        zparams["device"] = device
+        zparams["postalCode"] = self._postalcode
+        zparams["country"] = self._country
+        zparams["aid"] = "gapzap"
 
         return zparams
