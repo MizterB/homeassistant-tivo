@@ -5,6 +5,8 @@ For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/media_player.tivo/
 """
 import asyncio
+from calendar import timegm
+from datetime import timedelta
 import json
 
 # from pytz import timezone
@@ -15,16 +17,10 @@ import socket
 import sys
 import time
 import urllib
-from calendar import timegm
-from datetime import timedelta
 from urllib.parse import urlencode
 
-import homeassistant.helpers.config_validation as cv
-import requests
-import voluptuous as vol
-import zeroconf
 from homeassistant import util
-from homeassistant.components.media_player import PLATFORM_SCHEMA, MediaPlayerDevice
+from homeassistant.components.media_player import PLATFORM_SCHEMA, MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_TVSHOW,
     MEDIA_TYPE_VIDEO,
@@ -48,17 +44,23 @@ from homeassistant.const import (
     STATE_PLAYING,
     STATE_STANDBY,
 )
+import homeassistant.helpers.config_validation as cv
 
 # from homeassistant.helpers.event import (track_utc_time_change, track_time_interval)
 from homeassistant.helpers.event import track_time_interval
 from homeassistant.util.json import load_json, save_json
+import requests
+import voluptuous as vol
+import zeroconf
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME = "Tivo Receiver"
+DEFAULT_UNIQUE_ID = None
 DEFAULT_PORT = 31339
 DEFAULT_DEVICE = "0"
 
+CONF_UNIQUE_ID="unique_id"
 CONF_ZAPUSER = "zapuser"
 CONF_ZAPPASS = "zappass"
 CONF_DEBUG = "debug"
@@ -82,6 +84,7 @@ DATA_TIVO = "data_tivo"
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Optional(CONF_HOST): cv.string,
+        vol.Optional(CONF_UNIQUE_ID, default=DEFAULT_UNIQUE_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
         vol.Optional(CONF_DEVICE, default=DEFAULT_DEVICE): cv.string,
@@ -110,6 +113,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     if CONF_HOST in config:
         hosts.append(
             [
+                config.get(CONF_UNIQUE_ID),
                 config.get(CONF_NAME),
                 config.get(CONF_HOST),
                 config.get(CONF_PORT),
@@ -239,11 +243,12 @@ def find_tivos_zc():
     return tivos
 
 
-class TivoDevice(MediaPlayerDevice):
+class TivoDevice(MediaPlayerEntity):
     """Representation of a Tivo receiver on the network."""
 
-    def __init__(self, name, host, port, device, zapclient, debug):
+    def __init__(self, unique_id, name, host, port, device, zapclient, debug):
         """Initialize the device."""
+        self._unique_id = unique_id
         self._name = name
         self._host = host
         self._port = port
@@ -379,7 +384,12 @@ class TivoDevice(MediaPlayerDevice):
             if words[0] == "INVALID":
                 self._ignore.append(str(i))
 
-    # MediaPlayerDevice properties and methods
+    @property
+    def unique_id(self):
+        """Return a unique ID."""
+        return self._unique_id
+
+    # MediaPlayerEntity properties and methods
     @property
     def name(self):
         """Return the name of the device."""
@@ -690,7 +700,11 @@ class Zap2ItClient:
         header = {"X-Requested-With": "XMLHttpRequest"}
 
         req = urllib.request.Request(url=url, headers=header, method="GET")
-        res = urllib.request.urlopen(req, timeout=5)
+
+        try:
+            res = urllib.request.urlopen(req, timeout=5)
+        except:
+            _LOGGER.warn(f"Unable to download Zap2It listings")
 
         try:
             self._raw = res.read().decode("utf8")
