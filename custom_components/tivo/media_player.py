@@ -48,7 +48,8 @@ import homeassistant.helpers.config_validation as cv
 
 # from homeassistant.helpers.event import (track_utc_time_change, track_time_interval)
 from homeassistant.helpers.event import track_time_interval
-from homeassistant.util.json import load_json, save_json
+from homeassistant.helpers.json import save_json
+from homeassistant.util.json import load_json
 import requests
 import voluptuous as vol
 import zeroconf
